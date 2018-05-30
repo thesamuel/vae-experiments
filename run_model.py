@@ -28,19 +28,13 @@ network_arch = {}
 M1_model = M1(network_arch)
 M1_model.model.train()
 
-train_loss = 0
-# for i, (x, y) in enumerate(tqdm(train_loader)):
-for i, (x, y) in enumerate(tqdm(train_loader)):
-    output = M1_model.fit(x)
+for epoch in range(10):
+    train_loss = 0
+    for i, (x, y) in enumerate(tqdm(train_loader)):
+        output = M1_model.fit(x)
 
-    train_loss += output['loss'].item()
-
-print('epoch loss:', train_loss / len(train_loader.dataset))
-
-train_loss = 0
-# for i, (x, y) in enumerate(tqdm(train_loader)):
-for i, (x, y) in enumerate(tqdm(train_loader)):
-    output = M1_model.fit(x)
-
-    train_loss += output['loss'].item()
-print('epoch loss:', train_loss / len(train_loader.dataset))
+        train_loss += output['loss'].item()
+    print('epoch loss:', train_loss / len(train_loader.dataset))
+    M1_model.model.eval()
+    M1_model.model.gen_samples()
+    M1_model.model.train()
