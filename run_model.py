@@ -7,7 +7,7 @@ import torch.utils.data
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 
-from models import M1
+from models import M1, M2
 
 
 def get_data(batch_size):
@@ -25,16 +25,18 @@ def get_data(batch_size):
 batch_size = 128
 train_loader, test_loader = get_data(batch_size)
 network_arch = {}
-M1_model = M1(network_arch)
-M1_model.model.train()
+# M1_model = M1(network_arch)
+# M1_model.model.train()
+M2_model = M2(network_arch)
+M2_model.model.train()
 
+M2_model.model.gen_samples()
 for epoch in range(10):
     train_loss = 0
     for i, (x, y) in enumerate(tqdm(train_loader)):
-        output = M1_model.fit(x)
-
+        output = M2_model.fit(x, y)
         train_loss += output['loss'].item()
     print('epoch loss:', train_loss / len(train_loader.dataset))
-    M1_model.model.eval()
-    M1_model.model.gen_samples()
-    M1_model.model.train()
+    M2_model.model.eval()
+    M2_model.model.gen_samples()
+    M2_model.model.train()

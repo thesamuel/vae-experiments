@@ -7,7 +7,7 @@ from torchvision.utils import save_image
 class M1(object):
     def __init__(self, network_arch):
         self.arch = network_arch
-        self.model = M1_pytorch(self.arch)
+        self.model = M1_ff(self.arch)
 
         self.adam_b1 = 0.99
         self.adam_b2 = 0.999
@@ -23,9 +23,9 @@ class M1(object):
         self.optimizer.step()
         return output
 
-class M1_pytorch(nn.Module):
+class M1_ff(nn.Module):
     def __init__(self, network_arch):
-        super(M1_pytorch, self).__init__()
+        super(M1_ff, self).__init__()
 
         self.arch = network_arch
         self.x_dim = 784
@@ -95,14 +95,40 @@ class M1_pytorch(nn.Module):
         sample = self.decode(sample)
         save_image(sample.view(n_samples, 1, 28, 28), filename)
 
-class M2_pytorch(nn.Module):
+
+
+
+
+class M2(object):
     def __init__(self, network_arch):
-        super(M1_pytorch, self).__init__()
+        self.arch = network_arch
+        self.model = M2_ff(self.arch)
+
+        self.adam_b1 = 0.99
+        self.adam_b2 = 0.999
+        self.lr = 1e-3
+
+        grad_params = filter(lambda p: p.requires_grad, self.model.parameters())
+        self.optimizer = optim.Adam(grad_params, lr=self.lr, betas=(self.adam_b1, self.adam_b2))
+
+    def fit(self, x, y):
+        output = self.model(x, y)
+        self.optimizer.zero_grad()
+        output['loss'].backward()
+        self.optimizer.step()
+        return output
+
+class M2_ff(nn.Module):
+    def __init__(self, network_arch):
+        super(M2_ff, self).__init__()
 
         self.arch = network_arch
         self.x_dim = 784
         self.h_dim = 400
         self.z_dim = 20
+        self.clh_dim = 400
+        self.n_labels = 10
+
 
         self.x_dropout = nn.Dropout(p=0.2)
         self.en0_layer = nn.Linear(self.x_dim, self.h_dim)
@@ -112,10 +138,9 @@ class M2_pytorch(nn.Module):
         self.en_mean_bn = nn.BatchNorm1d(self.z_dim, eps=0.001, momentum=0.001, affine=True)
         self.en_lvar_bn = nn.BatchNorm1d(self.z_dim, eps=0.001, momentum=0.001, affine=True)
 
-
         self.z_dropout = nn.Dropout(p=0.2)
 
-        self.dez_layer = nn.Linear(self.z_dim, self.h_dim)
+        self.dez_layer = nn.Linear(self.z_dim + self.n_labels, self.h_dim)
         self.de0_layer = nn.Linear(self.h_dim, self.x_dim)
 
     def encode(self, x):
@@ -139,20 +164,23 @@ class M2_pytorch(nn.Module):
         else:
             return mean
 
-    def decode(self, z):
-        dez = F.relu(self.dez_layer(z))
-        de0 = F.sigmoid(self.de0_layer(dez))
-        return de0
+    def decode(self, z, y):
+        yz = torch.zeros([z.shape[0], self.n_labels])
+        yz.scatter_(1, y.unsqueeze(-1), 1)
+        dez = torch.cat([z, yz], -1)
+        de0 = F.relu(self.dez_layer(dez))
+        x_recon = F.sigmoid(self.de0_layer(de0))
+        return x_recon
 
     def _loss(self, recon_x, x, mean, lvar):
         BCE = F.binary_cross_entropy(recon_x, x.view(-1, self.x_dim), size_average=False)
         KLD = -0.5 * torch.sum(1 + lvar - mean.pow(2) - lvar.exp())
         return BCE + KLD
 
-    def forward(self, x):
+    def forward(self, x, y):
         mean, lvar = self.encode(x)
         z = self.sample(mean, lvar)
-        recon_x = self.decode(z)
+        recon_x = self.decode(z, y)
         loss = self._loss(recon_x, x, mean, lvar)
 
         output = {
@@ -162,7 +190,13 @@ class M2_pytorch(nn.Module):
                 }
         return output
 
-    def gen_samples(self, n_samples=64, filename='output/samples.png'):
+    def gen_samples(self, n_samples=4, filename='output/samples.png'):
+        all_samples = []
         sample = torch.randn(n_samples, self.z_dim)
-        sample = self.decode(sample)
-        save_image(sample.view(n_samples, 1, 28, 28), filename)
+        for y in range(1, 9):
+            y_samples = torch.LongTensor([y for i in range(n_samples)])
+            x_sample = self.decode(sample, y_samples)
+            all_samples.append(x_sample)
+        samples_tensor = torch.cat(all_samples, dim=-1)
+        save_image(samples_tensor.view(-1, 1, 28, 28), filename)
+
