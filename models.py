@@ -138,6 +138,9 @@ class M2_ff(nn.Module):
         self.en_mean_bn = nn.BatchNorm1d(self.z_dim, eps=0.001, momentum=0.001, affine=True)
         self.en_lvar_bn = nn.BatchNorm1d(self.z_dim, eps=0.001, momentum=0.001, affine=True)
 
+        self.cl0_layer = nn.Linear(self.x_dim, self.h_dim)
+        self.cl1_layer = nn.Linear(self.h_dim, self.n_labels)
+
         self.z_dropout = nn.Dropout(p=0.2)
 
         self.dez_layer = nn.Linear(self.z_dim + self.n_labels, self.h_dim)
@@ -152,7 +155,10 @@ class M2_ff(nn.Module):
         mean_bn = self.en_mean_bn(mean)
         lvar_bn = self.en_lvar_bn(lvar)
 
-        return mean_bn, lvar_bn
+        cl0 = F.relu(self.cl0_layer(x_do))
+        y_recon = F.softmax(self.cl1_layer(cl0), dim=-1)
+
+        return mean_bn, lvar_bn, y_recon
 
     def sample(self, mean, logvar):
         if self.training:
@@ -172,28 +178,32 @@ class M2_ff(nn.Module):
         x_recon = F.sigmoid(self.de0_layer(de0))
         return x_recon
 
-    def _loss(self, recon_x, x, mean, lvar):
+    def _loss(self, recon_x, x, recon_y, y, mean, lvar, alpha=0.1):
         BCE = F.binary_cross_entropy(recon_x, x.view(-1, self.x_dim), size_average=False)
         KLD = -0.5 * torch.sum(1 + lvar - mean.pow(2) - lvar.exp())
-        return BCE + KLD
+        YCE = F.cross_entropy(recon_y, y)
+        return (1-alpha) * (BCE + KLD) + alpha * YCE
 
     def forward(self, x, y):
-        mean, lvar = self.encode(x)
+        mean, lvar, recon_y = self.encode(x)
         z = self.sample(mean, lvar)
         recon_x = self.decode(z, y)
-        loss = self._loss(recon_x, x, mean, lvar)
+        loss = self._loss(recon_x, x, recon_y, y, mean, lvar)
 
         output = {
-                'input_x': x,
+                'x':       x,
                 'recon_x': recon_x,
-                'loss':    loss
+                'loss':    loss,
+                'y':       y,
+                'recon_y': recon_y.argmax(dim=-1),
+                'y_probs': recon_y,
                 }
         return output
 
-    def gen_samples(self, n_samples=4, filename='output/samples.png'):
+    def gen_samples(self, n_samples=20, filename='output/samples.png'):
         all_samples = []
         sample = torch.randn(n_samples, self.z_dim)
-        for y in range(1, 9):
+        for y in range(0, 8):
             y_samples = torch.LongTensor([y for i in range(n_samples)])
             x_sample = self.decode(sample, y_samples)
             all_samples.append(x_sample)
